@@ -22,20 +22,6 @@ builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 // ----- 加入這段：啟動時自動執行資料庫遷移 -----
-using (var scope = app.Services.CreateScope())
-{
-    var services = scope.ServiceProvider;
-    try
-    {
-        var context = services.GetRequiredService<ApplicationDbContext>();
-        context.Database.Migrate(); // 自動套用 Migrations 並建立 cakeshop.db
-    }
-    catch (Exception ex)
-    {
-        var logger = services.GetRequiredService<ILogger<Program>>();
-        logger.LogError(ex, "資料庫建立或遷移時發生錯誤。");
-    }
-}
 app.UseStaticFiles();
 app.UseRouting();
 
