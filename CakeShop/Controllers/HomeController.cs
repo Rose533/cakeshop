@@ -1,32 +1,33 @@
-using CakeShop.Models;
+using CakeShop.Data;
 using Microsoft.AspNetCore.Mvc;
-using System.Diagnostics;
+using Microsoft.EntityFrameworkCore;
 
 namespace CakeShop.Controllers
 {
     public class HomeController : Controller
     {
-        private readonly ILogger<HomeController> _logger;
+        private readonly ApplicationDbContext _context;
 
-        public HomeController(ILogger<HomeController> logger)
+        public HomeController(ApplicationDbContext context)
         {
-            _logger = logger;
+            _context = context;
         }
 
-        public IActionResult Index()
+        public async Task<IActionResult> Index()
         {
-            return View();
-        }
+            // 如果資料庫沒有蛋糕，自動塞入幾筆測試資料 (方便你直接看到畫面)
+            if (!_context.Cakes.Any())
+            {
+                _context.Cakes.AddRange(
+                    new Models.Cake { Name = "草莓千層", Price = 120, Description = "新鮮草莓搭配濃郁卡士達" },
+                    new Models.Cake { Name = "重乳酪蛋糕", Price = 100, Description = "經典美式重乳酪" },
+                    new Models.Cake { Name = "黑森林蛋糕", Price = 90, Description = "苦甜巧克力與櫻桃的絕妙搭配" }
+                );
+                await _context.SaveChangesAsync();
+            }
 
-        public IActionResult Privacy()
-        {
-            return View();
-        }
-
-        [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
-        public IActionResult Error()
-        {
-            return View(new ErrorViewModel { RequestId = Activity.Current?.Id ?? HttpContext.TraceIdentifier });
+            var cakes = await _context.Cakes.ToListAsync();
+            return View(cakes);
         }
     }
 }

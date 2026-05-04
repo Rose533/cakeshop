@@ -67,5 +67,20 @@ namespace CakeShop.Controllers
 
             return RedirectToAction("Index");
         }
+        // 在 OrdersController.cs 中加入這個 Action
+        [HttpGet]
+        public async Task<IActionResult> Index()
+        {
+            var user = await _userManager.GetUserAsync(User);
+
+            // 取得該會員的訂單，並包含蛋糕的詳細資訊
+            var orders = await _context.Orders
+                .Include(o => o.Cake)
+                .Where(o => o.UserId == user.Id)
+                .OrderByDescending(o => o.OrderDate)
+                .ToListAsync();
+
+            return View(orders);
+        }
     }
 }
