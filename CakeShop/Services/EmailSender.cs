@@ -1,4 +1,5 @@
 ﻿using MailKit.Net.Smtp;
+using MailKit.Security;
 using MimeKit;
 using Microsoft.AspNetCore.Identity.UI.Services;
 
@@ -7,39 +8,68 @@ namespace CakeShop.Services
     public class EmailSender : IEmailSender
     {
         private readonly IConfiguration _config;
-        public EmailSender(IConfiguration config)
+        private readonly ILogger<EmailSender> _logger;
+
+        public EmailSender(IConfiguration config, ILogger<EmailSender> logger)
         {
             _config = config;
+            _logger = logger;
         }
 
         public async Task SendEmailAsync(string email, string subject, string htmlMessage)
         {
-            var emailMessage = new MimeMessage();
-            emailMessage.From.Add(new MailboxAddress("蛋糕訂購網", _config["EmailSettings:SenderEmail"]));
-            emailMessage.To.Add(new MailboxAddress("", email));
-            emailMessage.Subject = subject;
+            var smtpServer = _config["EmailSettings:SmtpServer"];
+            var portRaw = _config["EmailSettings:Port"];
+            var senderEmail = _config["EmailSettings:SenderEmail"];
+            var username = _config["EmailSettings:Username"];
+            var password = _config["EmailSettings:Password"];
 
-            var bodyBuilder = new BodyBuilder { HtmlBody = htmlMessage };
-            emailMessage.Body = bodyBuilder.ToMessageBody();
+            if (string.IsNullOrWhiteSpace(smtpServer) ||
+                string.IsNullOrWhiteSpace(portRaw) ||
+                string.IsNullOrWhiteSpace(senderEmail) ||
+                string.IsNullOrWhiteSpace(username) ||
+                string.IsNullOrWhiteSpace(password))
+            {
+                throw new InvalidOperationException("EmailSettings 未完整設定，請檢查環境變數或 appsettings。");
+            }
 
-            using var client = new SmtpClient();
+            if (!int.TryParse(portRaw, out var port))
+            {
+                throw new InvalidOperationException("EmailSettings:Port 格式錯誤，必須是數字。");
+            }
+
+            var message = new MimeMessage();
+            message.From.Add(new MailboxAddress("蛋糕訂購網", senderEmail));
+            message.To.Add(MailboxAddress.Parse(email));
+            message.Subject = subject;
+            message.Body = new BodyBuilder { HtmlBody = htmlMessage }.ToMessageBody();
+
+            using var client = new SmtpClient
+            {
+                CheckCertificateRevocation = false
+            };
+
             try
             {
-                // --- 關鍵修改點 ---
-                // 解決「撤銷功能無法檢查憑證的撤銷」錯誤
-                client.CheckCertificateRevocation = false;
-                // ------------------
+                var socketOptions = port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls;
 
-                // 如果上述設定後還是有問題，且你在開發環境，才考慮啟用下面這行
-                // client.ServerCertificateValidationCallback = (s, c, h, e) => true;
+                await client.ConnectAsync(smtpServer, port, socketOptions);
+                await client.AuthenticateAsync(username, password);
+                await client.SendAsync(message);
 
-                await client.ConnectAsync(_config["EmailSettings:SmtpServer"], int.Parse(_config["EmailSettings:Port"]), true);
-                await client.AuthenticateAsync(_config["EmailSettings:Username"], _config["EmailSettings:Password"]);
-                await client.SendAsync(emailMessage);
+                _logger.LogInformation("驗證信已送出至 {Email}", email);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "寄送驗證信失敗。SMTP={SmtpServer}, Port={Port}, Username={Username}", smtpServer, port, username);
+                throw;
             }
             finally
             {
-                await client.DisconnectAsync(true);
+                if (client.IsConnected)
+                {
+                    await client.DisconnectAsync(true);
+                }
             }
         }
     }
