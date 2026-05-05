@@ -9,11 +9,13 @@ namespace CakeShop.Services
     {
         private readonly IConfiguration _config;
         private readonly ILogger<EmailSender> _logger;
+        private readonly IWebHostEnvironment _env;
 
-        public EmailSender(IConfiguration config, ILogger<EmailSender> logger)
+        public EmailSender(IConfiguration config, ILogger<EmailSender> logger, IWebHostEnvironment env)
         {
             _config = config;
             _logger = logger;
+            _env = env;
         }
 
         public async Task SendEmailAsync(string email, string subject, string htmlMessage)
@@ -23,6 +25,7 @@ namespace CakeShop.Services
             var senderEmail = _config["EmailSettings:SenderEmail"];
             var username = _config["EmailSettings:Username"];
             var password = _config["EmailSettings:Password"];
+            var throwOnFailure = false;
 
             if (string.IsNullOrWhiteSpace(smtpServer) ||
                 string.IsNullOrWhiteSpace(portRaw) ||
@@ -30,12 +33,20 @@ namespace CakeShop.Services
                 string.IsNullOrWhiteSpace(username) ||
                 string.IsNullOrWhiteSpace(password))
             {
-                throw new InvalidOperationException("EmailSettings 未完整設定，請檢查環境變數或 appsettings。");
+                var ex = new InvalidOperationException("EmailSettings 未完整設定，請檢查環境變數或 appsettings。");
+                _logger.LogError(ex, "寄送驗證信前檢查失敗。ThrowOnFailure={ThrowOnFailure}", throwOnFailure);
+
+                _logger.LogWarning("已略過寄信，註冊流程繼續。請確認 Render 已設定 EmailSettings__* 並重新部署。");
+                return;
             }
 
             if (!int.TryParse(portRaw, out var port))
             {
-                throw new InvalidOperationException("EmailSettings:Port 格式錯誤，必須是數字。");
+                var ex = new InvalidOperationException("EmailSettings:Port 格式錯誤，必須是數字。");
+                _logger.LogError(ex, "寄送驗證信前檢查失敗。ThrowOnFailure={ThrowOnFailure}", throwOnFailure);
+
+                _logger.LogWarning("已略過寄信，註冊流程繼續。請修正 EmailSettings__Port。");
+                return;
             }
 
             var message = new MimeMessage();
@@ -46,7 +57,8 @@ namespace CakeShop.Services
 
             using var client = new SmtpClient
             {
-                CheckCertificateRevocation = false
+                CheckCertificateRevocation = false,
+                Timeout = 15000
             };
 
             try
@@ -61,8 +73,9 @@ namespace CakeShop.Services
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "寄送驗證信失敗。SMTP={SmtpServer}, Port={Port}, Username={Username}", smtpServer, port, username);
-                throw;
+                _logger.LogError(ex, "寄送驗證信失敗。SMTP={SmtpServer}, Port={Port}, Username={Username}, ThrowOnFailure={ThrowOnFailure}", smtpServer, port, username, throwOnFailure);
+
+                _logger.LogWarning("驗證信寄送失敗已略過，註冊流程將繼續。請檢查 Render 環境變數 EmailSettings__* 是否正確。");
             }
             finally
             {
