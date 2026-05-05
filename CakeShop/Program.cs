@@ -20,7 +20,18 @@ builder.Services.AddTransient<IEmailSender, EmailSender>();
 
 builder.Services.AddControllersWithViews();
 
+// 註冊 DbContext
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlite("Data Source=cakes.db"));
+
 var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    db.Database.Migrate();
+}
+
+
 // ----- 加入這段：啟動時自動執行資料庫遷移 -----
 app.UseStaticFiles();
 app.UseRouting();
