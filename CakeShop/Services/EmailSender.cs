@@ -1,5 +1,4 @@
 ﻿using MailKit.Net.Smtp;
-using MailKit.Security;
 using MimeKit;
 using Microsoft.AspNetCore.Identity.UI.Services;
 
@@ -8,7 +7,6 @@ namespace CakeShop.Services
     public class EmailSender : IEmailSender
     {
         private readonly IConfiguration _config;
-
         public EmailSender(IConfiguration config)
         {
             _config = config;
@@ -16,54 +14,32 @@ namespace CakeShop.Services
 
         public async Task SendEmailAsync(string email, string subject, string htmlMessage)
         {
-            var message = new MimeMessage();
+            var emailMessage = new MimeMessage();
+            emailMessage.From.Add(new MailboxAddress("蛋糕訂購網", _config["EmailSettings:SenderEmail"]));
+            emailMessage.To.Add(new MailboxAddress("", email));
+            emailMessage.Subject = subject;
 
-            message.From.Add(new MailboxAddress(
-                "蛋糕訂購網",
-                _config["EmailSettings:SenderEmail"]
-            ));
-
-            message.To.Add(MailboxAddress.Parse(email));
-            message.Subject = subject;
-
-            message.Body = new BodyBuilder
-            {
-                HtmlBody = htmlMessage
-            }.ToMessageBody();
+            var bodyBuilder = new BodyBuilder { HtmlBody = htmlMessage };
+            emailMessage.Body = bodyBuilder.ToMessageBody();
 
             using var client = new SmtpClient();
-
             try
             {
-                var host = _config["EmailSettings:SmtpServer"];
-                var port = _config.GetValue<int>("EmailSettings:Port");
-                var username = _config["EmailSettings:Username"];
-                var password = _config["EmailSettings:Password"];
+                // --- 關鍵修改點 ---
+                // 解決「撤銷功能無法檢查憑證的撤銷」錯誤
+                client.CheckCertificateRevocation = false;
+                // ------------------
 
-                // ⭐ 正確 SSL 設定（比 true/false 安全）
-                var secureSocketOptions =
-                    port == 465
-                        ? SecureSocketOptions.SslOnConnect
-                        : SecureSocketOptions.StartTls;
+                // 如果上述設定後還是有問題，且你在開發環境，才考慮啟用下面這行
+                // client.ServerCertificateValidationCallback = (s, c, h, e) => true;
 
-                await client.ConnectAsync(host, port, secureSocketOptions);
-
-                await client.AuthenticateAsync(username, password);
-
-                await client.SendAsync(message);
-            }
-            catch (Exception ex)
-            {
-                // 建議你換成 ILogger（這裡先保守寫）
-                Console.WriteLine($"Email 發送失敗: {ex.Message}");
-                throw;
+                await client.ConnectAsync(_config["EmailSettings:SmtpServer"], int.Parse(_config["EmailSettings:Port"]), true);
+                await client.AuthenticateAsync(_config["EmailSettings:Username"], _config["EmailSettings:Password"]);
+                await client.SendAsync(emailMessage);
             }
             finally
             {
-                if (client.IsConnected)
-                {
-                    await client.DisconnectAsync(true);
-                }
+                await client.DisconnectAsync(true);
             }
         }
     }
