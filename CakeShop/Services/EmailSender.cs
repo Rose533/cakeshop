@@ -26,6 +26,8 @@ namespace CakeShop.Services
             var username = _config["EmailSettings:Username"];
             var password = _config["EmailSettings:Password"];
             var throwOnFailure = false;
+            var timeoutMsRaw = _config["EmailSettings:TimeoutMs"];
+            var timeoutMs = 5000;
 
             if (string.IsNullOrWhiteSpace(smtpServer) ||
                 string.IsNullOrWhiteSpace(portRaw) ||
@@ -49,6 +51,12 @@ namespace CakeShop.Services
                 return;
             }
 
+            if (!string.IsNullOrWhiteSpace(timeoutMsRaw) && (!int.TryParse(timeoutMsRaw, out timeoutMs) || timeoutMs <= 0))
+            {
+                _logger.LogWarning("EmailSettings:TimeoutMs 設定無效，將使用預設值 5000ms。Raw={TimeoutMsRaw}", timeoutMsRaw);
+                timeoutMs = 5000;
+            }
+
             var message = new MimeMessage();
             message.From.Add(new MailboxAddress("蛋糕訂購網", senderEmail));
             message.To.Add(MailboxAddress.Parse(email));
@@ -58,16 +66,18 @@ namespace CakeShop.Services
             using var client = new SmtpClient
             {
                 CheckCertificateRevocation = false,
-                Timeout = 15000
+                Timeout = timeoutMs
             };
 
             try
             {
                 var socketOptions = port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls;
 
-                await client.ConnectAsync(smtpServer, port, socketOptions);
-                await client.AuthenticateAsync(username, password);
-                await client.SendAsync(message);
+                using var cts = new CancellationTokenSource(timeoutMs);
+
+                await client.ConnectAsync(smtpServer, port, socketOptions, cts.Token);
+                await client.AuthenticateAsync(username, password, cts.Token);
+                await client.SendAsync(message, cts.Token);
 
                 _logger.LogInformation("驗證信已送出至 {Email}", email);
             }
