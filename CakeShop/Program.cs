@@ -20,6 +20,10 @@ builder.Services.AddTransient<IEmailSender, EmailSender>();
 
 builder.Services.AddControllersWithViews();
 
+// 註冊 DbContext
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlite("Data Source=cakes.db"));
+
 var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
